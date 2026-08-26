@@ -55,6 +55,18 @@ PROFILE_BASE = "https://beneat.co"
 CLEANING_SERVICE_ID = 1
 
 
+def _serves_district(detail: dict[str, Any], district_id: int) -> bool:
+    """Return whether a profile explicitly lists the selected service district."""
+    districts = detail.get("professional_districts")
+    if not isinstance(districts, list):
+        return False
+    return any(
+        isinstance(entry, dict)
+        and str(entry.get("district_id", "")) == str(district_id)
+        for entry in districts
+    )
+
+
 def _load_reference_data(refresh: bool) -> CacheData:
     """Load reference data from cache or the live API."""
     if not refresh and is_fresh(cache_path()):
@@ -108,7 +120,7 @@ def _fetch_and_gate_cleaners(
 
 
 def _enrich_repeat_rates(
-    records: list[CleanerRecord], workers: int
+    records: list[CleanerRecord], workers: int, district_id: int
 ) -> list[CleanerRecord]:
     """Fetch each cleaner's detail to obtain the repeat booking rate.
 
@@ -116,8 +128,12 @@ def _enrich_repeat_rates(
     be hundreds of excellent cleaners in a single district.
     """
 
-    def fetch(record: CleanerRecord) -> CleanerRecord:
+    def fetch(record: CleanerRecord) -> CleanerRecord | None:
         detail = fetch_professional_detail(record.professional_id)
+        # The listing endpoint can return professionals outside the selected
+        # district.  The profile's explicit service-area list is authoritative.
+        if not _serves_district(detail, district_id):
+            return None
         return enrich(record, detail, PROFILE_BASE)
 
     enriched: list[CleanerRecord] = []
@@ -133,7 +149,9 @@ def _enrich_repeat_rates(
                 end="",
                 flush=True,
             )
-            enriched.append(_future.result())
+            result = _future.result()
+            if result is not None:
+                enriched.append(result)
     print()
     return enriched
 
@@ -252,7 +270,7 @@ def main() -> None:
             )
             return
 
-        enriched = _enrich_repeat_rates(excellent, args.workers)
+        enriched = _enrich_repeat_rates(excellent, args.workers, district_id)
         qualified = [record for record in enriched if is_acceptable(record)]
         if not qualified:
             print("No excellent-rated cleaners with repeat data found in this area.")
