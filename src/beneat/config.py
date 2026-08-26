@@ -27,9 +27,6 @@ class Settings(BaseSettings):
     cache_ttl_days: int = 30
     cache_dir: Path = Path.home() / ".cache" / "beneat"
 
-    # Service filter: 1 = general cleaning
-    service_id: int = 1
-
     # Listing pagination
     listing_limit: int = 200
 

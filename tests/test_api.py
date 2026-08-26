@@ -77,6 +77,43 @@ def test_malformed_detail_raises(requests_mock: requests_mock.Mocker) -> None:
         api.fetch_professional_detail(42)
 
 
+def test_fetch_professional_calendar(requests_mock: requests_mock.Mocker) -> None:
+    requests_mock.get(
+        f"{api.settings.beneat_api_base}/professional/calendars",
+        json={"blocked_dates": [{"date": "2099-06-10", "blocked_type": "full"}]},
+    )
+
+    result = api.fetch_professional_calendar(42, "2099-06-10")
+
+    assert result["blocked_dates"][0]["blocked_type"] == "full"
+    assert requests_mock.last_request.qs == {
+        "professional_id": ["42"],
+        "start_date": ["2099-06-10"],
+        "end_date": ["2099-06-10"],
+    }
+
+
+def test_fetch_calendar_jobs_treats_no_data_as_empty(
+    requests_mock: requests_mock.Mocker,
+) -> None:
+    requests_mock.get(
+        f"{api.settings.beneat_api_base}/professional/calendars/jobs",
+        json={"error": True, "message": "No data"},
+    )
+
+    assert api.fetch_professional_calendar_jobs(42, "2099-06-10") == []
+
+
+def test_fetch_calendar_jobs_returns_jobs(requests_mock: requests_mock.Mocker) -> None:
+    requests_mock.get(
+        f"{api.settings.beneat_api_base}/professional/calendars/jobs",
+        json={"error": False, "calendar_jobs": [{"start_time": "10:00"}]},
+    )
+
+    jobs = api.fetch_professional_calendar_jobs(42, "2099-06-10")
+    assert jobs == [{"start_time": "10:00"}]
+
+
 def test_api_error_field_raises(requests_mock: requests_mock.Mocker) -> None:
     requests_mock.get(
         f"{api.settings.beneat_api_base}/address-provinces",

@@ -24,7 +24,12 @@ class BeNeatAPIError(RuntimeError):
     """Raised when the BeNeat API returns a non-OK response."""
 
 
-def _get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+def _get(
+    path: str,
+    params: dict[str, Any] | None = None,
+    *,
+    allow_error: bool = False,
+) -> dict[str, Any]:
     """Perform a GET against the BeNeat API with a single retry on failure."""
     url = f"{settings.beneat_api_base}{path}"
     last_error: Exception | None = None
@@ -40,7 +45,7 @@ def _get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
             data = resp.json()
             if not isinstance(data, dict):
                 raise ValueError("Unexpected non-object JSON response")
-            if data.get("error"):
+            if data.get("error") and not allow_error:
                 raise BeNeatAPIError(
                     str(data.get("message", "API returned error"))
                 )
@@ -112,3 +117,33 @@ def fetch_professional_detail(professional_id: int) -> dict[str, Any]:
             f"Malformed detail response for professional {professional_id}"
         )
     return professional
+
+
+def fetch_professional_calendar(
+    professional_id: int, booking_date: str
+) -> dict[str, Any]:
+    """Return provider-level calendar data for a booking date."""
+    return _get(
+        "/professional/calendars",
+        {
+            "professional_id": professional_id,
+            "start_date": booking_date,
+            "end_date": booking_date,
+        },
+    )
+
+
+def fetch_professional_calendar_jobs(
+    professional_id: int, booking_date: str
+) -> list[dict[str, Any]]:
+    """Return a provider's existing jobs; BeNeat reports no jobs as an error."""
+    data = _get(
+        "/professional/calendars/jobs",
+        {"professional_id": professional_id, "cleaning_date": booking_date},
+        allow_error=True,
+    )
+    if data.get("error") and data.get("message") == "No data":
+        return []
+    if data.get("error"):
+        raise BeNeatAPIError(str(data.get("message", "Calendar API returned error")))
+    return list(data.get("calendar_jobs", []))

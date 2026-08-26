@@ -1,11 +1,13 @@
-"""Interactive CLI prompts, progress display, and markdown output."""
+"""Interactive CLI prompts, progress display, and HTML output."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from html import escape
 from pathlib import Path
 from typing import Any
 
+from beneat.availability import BookingSlot, parse_booking_slot
 from beneat.ranking import RankedCleaner
 
 
@@ -50,11 +52,45 @@ def select_province(provinces: Sequence[dict[str, Any]]) -> dict[str, Any]:
 
 
 def select_district(districts: Sequence[dict[str, Any]]) -> dict[str, Any]:
-    """Prompt the user to pick a district, returning its record."""
+    """Prompt with districts sorted by English name without a Khet prefix."""
+    ordered = sorted(districts, key=_district_sort_key)
     print("Select a district:")
-    _print_menu(districts)
-    choice = _read_choice(len(districts), "District number (or blank to cancel): ")
-    return districts[choice - 1]
+    for index, item in enumerate(ordered, start=1):
+        name_th = str(item.get("name_th") or item.get("name", ""))
+        name_en = _district_english_name(item)
+        if name_en and name_en != name_th:
+            print(f"  {index:>2}. {name_th} ({name_en})")
+        else:
+            print(f"  {index:>2}. {name_th}")
+    choice = _read_choice(len(ordered), "District number (or blank to cancel): ")
+    return ordered[choice - 1]
+
+
+def _district_english_name(item: dict[str, Any]) -> str:
+    name = str(item.get("name_en") or "")
+    return name[5:] if name.casefold().startswith("khet ") else name
+
+
+def _district_sort_key(item: dict[str, Any]) -> str:
+    return (_district_english_name(item) or str(item.get("name_th", ""))).casefold()
+
+
+def select_booking_slot() -> BookingSlot:
+    """Prompt until the user enters a valid booking date and start time."""
+    while True:
+        try:
+            date_text = input("Booking date (YYYY-MM-DD, blank to cancel): ").strip()
+            if not date_text:
+                raise CancelSelectionError
+            time_text = input(
+                "Start time (HH:MM; blank = any start before 14:00): "
+            ).strip()
+        except (KeyboardInterrupt, EOFError):
+            raise CancelSelectionError from None
+        try:
+            return parse_booking_slot(date_text, time_text)
+        except ValueError as exc:
+            print(f"Invalid booking slot: {exc}")
 
 
 def display_top(ranked: Sequence[RankedCleaner], limit: int = 3) -> None:
@@ -68,39 +104,73 @@ def display_top(ranked: Sequence[RankedCleaner], limit: int = 3) -> None:
         repeat = r.repeat_booking_rate if r.repeat_booking_rate is not None else 0
         print(
             f"  #{entry.rank} {r.name} — {r.job_qty} jobs, "
-            f"{repeat}% repeat, {r.rating:.1f}★ ({r.rating_qty} reviews)"
+            f"{repeat}% repeat, {r.rating:.1f}★ ({r.rating_qty} reviews), "
+            f"available {r.available_start_time or 'time unknown'}"
         )
 
 
-def write_markdown(
+def write_html(
     ranked: Sequence[RankedCleaner],
     province_name: str,
     district_name: str,
+    booking_slot: BookingSlot,
     path: str,
 ) -> None:
-    """Write the ranked table to a markdown file."""
+    """Write the ranked table to a standalone HTML file."""
     lines = [
-        "# BeNeat Cleaner Ranking",
-        "",
-        f"- Province: {province_name}",
-        f"- District: {district_name}",
-        "- Excellent badge: required (is_excellent)",
-        "- Repeat booking rate: required (> 0)",
-        "- Service: general cleaning (service_id=1)",
-        "- Scoring: 0.4 x rank(jobs) + 0.6 x rank(repeat); tie-break by jobs",
-        "",
-        f"Total accepted cleaners: {len(ranked)}",
-        "",
-        "| Rank | Cleaner | Jobs | Repeat % | Rating | Reviews | URL |",
-        "|------|---------|------|----------|--------|---------|-----|",
+        "<!doctype html>",
+        '<html lang="en">',
+        "<head>",
+        '  <meta charset="utf-8">',
+        '  <meta name="viewport" content="width=device-width, initial-scale=1">',
+        "  <title>BeNeat Cleaner Ranking</title>",
+        "  <style>",
+        "    body { font-family: system-ui, sans-serif; margin: 2rem auto; "
+        "max-width: 1100px; padding: 0 1rem; color: #222; }",
+        "    table { border-collapse: collapse; width: 100%; }",
+        "    th, td { border: 1px solid #ddd; padding: .65rem; text-align: left; }",
+        "    th { background: #f5f5f5; }",
+        "    tbody tr:nth-child(even) { background: #fafafa; }",
+        "  </style>",
+        "</head>",
+        "<body>",
+        "  <h1>BeNeat Cleaner Ranking</h1>",
+        "  <ul>",
+        f"    <li>Province: {escape(province_name)}</li>",
+        f"    <li>District: {escape(district_name)}</li>",
+        f"    <li>Date: {booking_slot.date_text}</li>",
+        f"    <li>Start time: {booking_slot.time_text}</li>",
+        f"    <li>Duration: {booking_slot.duration_hours} hours</li>",
+        f"    <li>Service: {escape(booking_slot.service)}</li>",
+        f"    <li>Frequency: {escape(booking_slot.frequency)}</li>",
+        "    <li>Excellent badge: required (is_excellent)</li>",
+        "    <li>Repeat booking rate: required (&gt; 0)</li>",
+        "    <li>Scoring: 0.4 x rank(jobs) + 0.6 x rank(repeat); "
+        "tie-break by jobs</li>",
+        "  </ul>",
+        f"  <p>Total accepted cleaners: {len(ranked)}</p>",
+        "  <table>",
+        "    <thead><tr><th>Rank</th><th>Cleaner</th><th>Jobs</th>"
+        "<th>Available start</th><th>Repeat %</th><th>Rating</th><th>Reviews</th>"
+        "<th>Profile</th></tr></thead>",
+        "    <tbody>",
     ]
-    for entry in ranked[:20]:
+    for entry in ranked:
         r = entry.record
         repeat = r.repeat_booking_rate if r.repeat_booking_rate is not None else 0
+        name = escape(r.name)
+        url = escape(r.profile_url, quote=True)
         lines.append(
-            f"| {entry.rank} | {r.name} | {r.job_qty} | {repeat} | "
-            f"{r.rating:.1f} | {r.rating_qty} | {r.profile_url} |"
+            "      <tr>"
+            f"<td>{entry.rank}</td><td>{name}</td><td>{r.job_qty}</td>"
+            f"<td>{escape(r.available_start_time or 'Unknown')}</td>"
+            f"<td>{repeat}</td><td>{r.rating:.1f}</td><td>{r.rating_qty}</td>"
+            f'<td><a href="{url}" target="_blank" '
+            'rel="noopener noreferrer">Open profile</a></td>'
+            "</tr>"
         )
-    lines.append("")
-    Path(path).write_text("\n".join(lines), encoding="utf-8")
+    lines.extend(["    </tbody>", "  </table>", "</body>", "</html>", ""])
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("\n".join(lines), encoding="utf-8")
     print(f"\nResults written to {path}")

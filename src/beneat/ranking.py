@@ -31,6 +31,7 @@ class CleanerRecord:
     rating_qty: int
     is_excellent: bool
     profile_url: str
+    available_start_time: str | None = None
 
 
 WEIGHT_JOBS = 0.4

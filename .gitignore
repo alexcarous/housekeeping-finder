@@ -56,14 +56,16 @@ Thumbs.db
 MEMORY.md
 GEMINI.md
 
-# Python
-
 # Testing and Quality Caches
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.uv-cache/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
 
 # Generated output
 RESULTS.md
+output/
