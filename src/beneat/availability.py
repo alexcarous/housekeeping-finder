@@ -21,6 +21,11 @@ def booking_today() -> date:
     return datetime.now(BANGKOK_TIME_ZONE).date()
 
 
+def booking_now() -> datetime:
+    """Return the current date and time in BeNeat's Bangkok timezone."""
+    return datetime.now(BANGKOK_TIME_ZONE)
+
+
 @dataclass(frozen=True)
 class BookingSlot:
     """The fixed-assumption booking slot requested by the user."""
@@ -81,10 +86,10 @@ def find_available_start(
     slot: BookingSlot,
     blocked_dates: list[dict[str, Any]],
     calendar_jobs: list[dict[str, Any]],
+    not_before: time | None = None,
 ) -> time | None:
     """Return the first matching start time using BeNeat's web rules."""
-    partial_start: int | None = None
-    partial_end: int | None = None
+    partial_blocks: list[tuple[int, int]] = []
     for blocked in blocked_dates:
         if str(blocked.get("date", "")) != slot.date_text:
             continue
@@ -93,18 +98,23 @@ def find_available_start(
             return None
         if blocked_type == "partial":
             try:
-                partial_start = _minutes(str(blocked["start_time"]))
-                partial_end = _minutes(str(blocked["end_time"]))
+                partial_blocks.append(
+                    (
+                        _minutes(str(blocked["start_time"])),
+                        _minutes(str(blocked["end_time"])),
+                    )
+                )
             except (KeyError, ValueError):
                 return None
 
     for candidate in _candidate_start_times(slot):
+        if not_before is not None and candidate < not_before:
+            continue
         start = candidate.hour * 60 + candidate.minute
         end = start + slot.duration_hours * 60
-        if (
-            partial_start is not None
-            and partial_end is not None
-            and (start < partial_start or end > partial_end)
+        if any(
+            start < block_end and end > block_start
+            for block_start, block_end in partial_blocks
         ):
             continue
 

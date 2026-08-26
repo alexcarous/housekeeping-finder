@@ -51,7 +51,7 @@ def test_blank_time_finds_first_available_start_before_1400() -> None:
     assert matched == dt_time(10, 0)
 
 
-def test_blank_time_rejects_slot_starting_at_1400() -> None:
+def test_blank_time_can_use_start_before_a_later_partial_block() -> None:
     slot = parse_booking_slot("2099-06-10", "")
     blocks = [
         {
@@ -61,7 +61,15 @@ def test_blank_time_rejects_slot_starting_at_1400() -> None:
             "end_time": "19:30",
         }
     ]
-    assert find_available_start(slot, blocks, []) is None
+    assert find_available_start(slot, blocks, []) == dt_time(7, 0)
+
+
+def test_flexible_time_skips_starts_before_current_time() -> None:
+    slot = parse_booking_slot("2099-06-10", "")
+
+    matched = find_available_start(slot, [], [], not_before=dt_time(10, 10))
+
+    assert matched == dt_time(10, 30)
 
 
 def test_available_with_empty_calendar() -> None:
@@ -73,18 +81,19 @@ def test_full_day_block_is_unavailable() -> None:
     assert not is_available(SLOT, blocks, [])
 
 
-def test_partial_window_must_contain_entire_booking() -> None:
+def test_partial_blocked_window_is_unavailable() -> None:
     blocks = [
         {
             "date": SLOT.date_text,
             "blocked_type": "partial",
-            "start_time": "09:00",
-            "end_time": "11:30",
+            "start_time": "12:00",
+            "end_time": "17:00",
         }
     ]
-    assert not is_available(SLOT, blocks, [])
-    blocks[0]["end_time"] = "12:00"
     assert is_available(SLOT, blocks, [])
+    blocks[0]["start_time"] = "09:30"
+    blocks[0]["end_time"] = "12:00"
+    assert not is_available(SLOT, blocks, [])
 
 
 def test_existing_job_and_buffers_are_unavailable() -> None:

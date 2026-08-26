@@ -26,7 +26,12 @@ from beneat.api import (
     fetch_services,
     iter_professionals,
 )
-from beneat.availability import BookingSlot, booking_today, find_available_start
+from beneat.availability import (
+    BookingSlot,
+    booking_now,
+    booking_today,
+    find_available_start,
+)
 from beneat.cache import CacheData, cache_path, is_fresh, load, save
 from beneat.cli import (
     CancelSelectionError,
@@ -37,7 +42,13 @@ from beneat.cli import (
     write_html,
 )
 from beneat.config import settings
-from beneat.ranking import CleanerRecord, enrich, from_listing, rank_cleaners
+from beneat.ranking import (
+    CleanerRecord,
+    enrich,
+    from_listing,
+    is_acceptable,
+    rank_cleaners,
+)
 
 OUTPUT_FILE = "output/RESULTS.html"
 PROFILE_BASE = "https://beneat.co"
@@ -131,6 +142,7 @@ def _filter_available(
     records: list[CleanerRecord], slot: BookingSlot, workers: int
 ) -> list[CleanerRecord]:
     """Keep only cleaners whose BeNeat calendars accept the requested slot."""
+    not_before = booking_now().time() if slot.booking_date == booking_today() else None
 
     def check(record: CleanerRecord) -> tuple[CleanerRecord, str | None]:
         calendar = fetch_professional_calendar(record.professional_id, slot.date_text)
@@ -141,7 +153,7 @@ def _filter_available(
             return record, None
         blocks = list(calendar.get("blocked_dates", []))
         jobs = fetch_professional_calendar_jobs(record.professional_id, slot.date_text)
-        matched = find_available_start(slot, blocks, jobs)
+        matched = find_available_start(slot, blocks, jobs, not_before=not_before)
         return record, matched.strftime("%H:%M") if matched else None
 
     available: list[CleanerRecord] = []
@@ -223,7 +235,8 @@ def main() -> None:
 
     print(
         f"\nSearching {_province_name(province)} / {_district_name(district)} "
-        f"for excellent cleaners (service_id={CLEANING_SERVICE_ID})..."
+        f"for excellent cleaners on {booking_slot.date_text} at "
+        f"{booking_slot.time_text} (service_id={CLEANING_SERVICE_ID})..."
     )
 
     try:
@@ -240,9 +253,27 @@ def main() -> None:
             return
 
         enriched = _enrich_repeat_rates(excellent, args.workers)
-        available = _filter_available(enriched, booking_slot, args.workers)
+        qualified = [record for record in enriched if is_acceptable(record)]
+        if not qualified:
+            print("No excellent-rated cleaners with repeat data found in this area.")
+            write_html(
+                [],
+                _province_name(province),
+                _district_name(district),
+                booking_slot,
+                OUTPUT_FILE,
+            )
+            return
+
+        available = _filter_available(qualified, booking_slot, args.workers)
+        if not available:
+            print(
+                "No qualifying cleaners are available for the requested "
+                f"date/time ({booking_slot.date_text}, {booking_slot.time_text})."
+            )
         ranked = rank_cleaners(available)
-        display_top(ranked)
+        if ranked:
+            display_top(ranked)
         write_html(
             ranked,
             _province_name(province),

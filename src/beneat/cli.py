@@ -149,12 +149,20 @@ def write_html(
         "tie-break by jobs</li>",
         "  </ul>",
         f"  <p>Total accepted cleaners: {len(ranked)}</p>",
+    ]
+    if not ranked:
+        lines.append(
+            "  <p>No qualifying cleaners were available for this booking slot.</p>"
+        )
+    lines.extend(
+        [
         "  <table>",
         "    <thead><tr><th>Rank</th><th>Cleaner</th><th>Jobs</th>"
         "<th>Available start</th><th>Repeat %</th><th>Rating</th><th>Reviews</th>"
         "<th>Profile</th></tr></thead>",
         "    <tbody>",
-    ]
+        ]
+    )
     for entry in ranked:
         r = entry.record
         repeat = r.repeat_booking_rate if r.repeat_booking_rate is not None else 0

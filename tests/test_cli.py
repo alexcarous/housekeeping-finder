@@ -117,3 +117,15 @@ def test_write_html_table(tmp_path: pytest.TempPathFactory) -> None:
     assert "2 hours" in content
     assert "Available start" in content
     assert "09:30" in content
+
+
+def test_empty_html_explains_no_availability(
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    target = tmp_path / "output" / "RESULTS.html"
+    slot = BookingSlot(date(2099, 6, 10), None)
+
+    write_html([], "กรุงเทพมหานคร", "เขตพระโขนง", slot, str(target))
+
+    content = target.read_text(encoding="utf-8")
+    assert "No qualifying cleaners were available for this booking slot" in content
