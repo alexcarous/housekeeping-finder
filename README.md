@@ -1,4 +1,4 @@
-# BeNeat Cleaner Finder
+# Housekeeping Finder
 
 Finds the best-rated BeNeat housekeeper for any district served by the
 [BeNeat](https://beneat.co) platform, ranking by a weighted score of completed
